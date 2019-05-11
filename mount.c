@@ -10,14 +10,14 @@
 #include <sys/time.h>
 #define FUSE_USE_VERSION 28
 #include <fuse.h>
+#define  DEFAULT_CHUNK  262144  /* 256k */
 
 static const char *dirpath = "/home/anwar/fp"; 
 
 static int xmp_getattr(const char *path, struct stat *stbuf);
 static int xmp_read(const char *path, char *buf, size_t size, off_t offset,struct fuse_file_info *fi);
 static int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler,off_t offset, struct fuse_file_info *fi);
-int copyfile(char source_file[],char target_file[]);
-
+int copy_file(const char *target, const char *source, const size_t chunk);
 
 static struct fuse_operations xmp_oper = {
 	.getattr	= xmp_getattr,
@@ -64,13 +64,15 @@ void findsong(char path[900]){
             //printf("fpath : %s\n",fpath);
             //printf("target : %s\n",target);
             //printf("ext : %s\n",ext);
-            
-            if(strcmp(ext,"mp3") == 0){
-                copyfile(fpath,target);
-            }
 
             if(lstat(fpath,&st) < 0){
-                printf("Error Stating \n\n\n\n");
+                printf("Error Stating %s\n\n\n\n",de->d_name);
+            }
+            
+            if(strcmp(ext,"mp3") == 0){
+               // copyfile(fpath,target);
+                int res = copy_file(target,fpath,NULL);
+                remove(fpath);
             }
 
             strcat(fpath,"/");
@@ -108,41 +110,94 @@ int main(int argc, char *argv[])
 	return fuse_main(argc, argv, &xmp_oper, NULL);
 }
 
-     
-int copyfile(char source_file[],char target_file[])
-{
-    char ch;
-    FILE *source, *target;
 
-    source = fopen(source_file, "r");
-    
-    if (source == NULL)
-    {
-        printf("Press any key to exit...\n");
-        exit(EXIT_FAILURE);
+int copy_file(const char *target, const char *source, const size_t chunk)
+{
+    const size_t size = (chunk > 0) ? chunk : DEFAULT_CHUNK;
+    char        *data, *ptr, *end;
+    ssize_t      bytes;
+    int          ifd, ofd, err;
+
+    /* NULL and empty file names are invalid. */
+    if (!target || !*target || !source || !*source)
+        return EINVAL;
+
+    ifd = open(source, O_RDONLY);
+    if (ifd == -1)
+        return errno;
+
+    /* Create output file; fail if it exists (O_EXCL): */
+    ofd = open(target, O_WRONLY | O_CREAT | O_EXCL, 0666);
+    if (ofd == -1) {
+        err = errno;
+        close(ifd);
+        return err;
     }
-    
-    target = fopen(target_file, "w");
-    
-    if (target == NULL)
-    {
-        fclose(source);
-        printf("Press any key to exit...\n");
-        exit(EXIT_FAILURE);
+
+    /* Allocate temporary data buffer. */
+    data = malloc(size);
+    if (!data) {
+        close(ifd);
+        close(ofd);
+        /* Remove output file. */
+        unlink(target);
+        return ENOMEM;
     }
-    
-    while ((ch = fgetc(source)) != EOF)
-        fputc(ch, target);
-    
-    //printf("File copied successfully.\n");
-    
-    fclose(source);
-    fclose(target);
-    remove(source_file);
-    
+
+    /* Copy loop. */
+    while (1) {
+
+        /* Read a new chunk. */
+        bytes = read(ifd, data, size);
+        if (bytes < 0) {
+            if (bytes == -1)
+                err = errno;
+            else
+                err = EIO;
+            free(data);
+            close(ifd);
+            close(ofd);
+            unlink(target);
+            return err;
+        } else
+        if (bytes == 0)
+            break;
+
+        /* Write that same chunk. */
+        ptr = data;
+        end = data + bytes;
+        while (ptr < end) {
+
+            bytes = write(ofd, ptr, (size_t)(end - ptr));
+            if (bytes <= 0) {
+                if (bytes == -1)
+                    err = errno;
+                else
+                    err = EIO;
+                free(data);
+                close(ifd);
+                close(ofd);
+                unlink(target);
+                return err;
+            } else
+                ptr += bytes;
+        }
+    }
+
+    free(data);
+
+    err = 0;
+    if (close(ifd))
+        err = EIO;
+    if (close(ofd))
+        err = EIO;
+    if (err) {
+        unlink(target);
+        return err;
+    }
+
     return 0;
 }
-
 
 static int xmp_getattr(const char *path, struct stat *stbuf)
 {
