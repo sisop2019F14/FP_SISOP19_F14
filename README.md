@@ -11,7 +11,7 @@ Langkah: Membuat dua source code, yang pertama adalah source code untuk melakuka
 
 1. mount.c
 
-Terdapat fungsi xmp_getattr untuk mengambil atribut, xmp_readdir untuk membaca directory, xmp_read untuk membaca file, findsong untuk melakukan pencarian file yang berekstensi .mp3, copyfile untuk menyalin file.
+Terdapat fungsi xmp_getattr untuk mengambil atribut, xmp_readdir untuk membaca directory, xmp_read untuk membaca file, findsong untuk melakukan pencarian file yang berekstensi .mp3, copyfile untuk menyalin file mp3 yang telah dicari dan memindahkannya ke directory FUSE.
 
 2. play_mp3.c
 
